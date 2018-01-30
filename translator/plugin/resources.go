@@ -8,9 +8,12 @@ import (
 type Stage int
 
 const (
-	PreAuth Stage = iota
-	Auth
-	PostAuth
+	PreInAuth Stage = iota
+	InAuth
+	PostInAuth
+	PreOutAuth
+	OutAuth
+	PostOutAuth
 )
 
 type FilterWrapper struct {
