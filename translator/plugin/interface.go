@@ -11,5 +11,5 @@ type Plugin interface {
 	// get dependenceies
 	GetDependencies(cfg v1.Config) []string
 	// create
-	Translate(cfg v1.Config, secretMap secrets.SecretMap)
+	Translate(cfg v1.Config, secretMap secrets.SecretMap) EnvoyResources
 }
