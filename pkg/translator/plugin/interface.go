@@ -10,26 +10,37 @@ import (
 	"github.com/hashicorp/go-multierror"
 )
 
-type ConfigError struct {
+type ConfigStatus struct {
 	Cfg v1.ConfigObject
 	Err *multierror.Error
 }
 
-func NewConfigError(Cfg v1.ConfigObject, Err *multierror.Error) ConfigError {
-	return ConfigError{Cfg: Cfg, Err: Err}
+func NewConfigMultiError(Cfg v1.ConfigObject, err *multierror.Error) ConfigStatus {
+	return ConfigStatus{Cfg: Cfg, Err: err}
+}
+
+func NewConfigError(Cfg v1.ConfigObject, err error) ConfigStatus {
+	return ConfigStatus{Cfg: Cfg, Err: multierror.Append(nil, err)}
+}
+
+func NewConfigOk(Cfg v1.ConfigObject) ConfigStatus {
+	return ConfigStatus{Cfg: Cfg, Err: nil}
 }
 
 type UserResource interface {
 	GetDependencies(cfg *v1.Config) DependenciesDescription
-	Validate(fi *PluginInputs) []ConfigError
 }
 
 type Plugin interface {
 	UserResource
 
 	EnvoyFilters(fi *PluginInputs) []FilterWrapper
-	UpdateEnvoyRoute(fi *PluginInputs, in *v1.Route, out *api.Route)
-	UpdateEnvoyCluster(fi *PluginInputs, in *v1.Upstream, out *api.Cluster)
+
+	UpdateEnvoyRoute(fi *PluginInputs, in *v1.Route, out *api.Route) error
+
+	UpdateEnvoyCluster(fi *PluginInputs, in *v1.Upstream, out *api.Cluster) error
+
+	UpdateFunctionToEnvoyCluster(fi *PluginInputs, in *v1.Upstream, infunc *v1.Function, out *api.Cluster) error
 }
 
 type FunctionalPlugin interface {
@@ -53,5 +64,5 @@ type NameTranslator interface {
 type Translator interface {
 	UserResource
 
-	Translate(cfg *v1.Config, secretMap module.SecretMap, endpoints module.EndpointGroups) (*envoycache.Snapshot, error)
+	Translate(cfg *v1.Config, secretMap module.SecretMap, endpoints module.EndpointGroups) (*envoycache.Snapshot, []ConfigStatus)
 }

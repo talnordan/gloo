@@ -14,6 +14,8 @@ import (
 	"github.com/solo-io/glue/pkg/api/types/v1"
 	"github.com/solo-io/glue/pkg/module"
 	"github.com/solo-io/glue/pkg/translator/plugin"
+
+	"github.com/hashicorp/go-multierror"
 )
 
 type dependencies struct {
@@ -29,7 +31,7 @@ type Translator struct {
 	nameTranslator plugin.NameTranslator
 }
 
-func NewTranslator(plugins []plugin.Plugin) *Translator {
+func NewTranslator(plugins []plugin.Plugin, nameTranslator plugin.NameTranslator) *Translator {
 
 	var functionPlugins []plugin.FunctionalPlugin
 	for _, p := range plugins {
@@ -40,7 +42,7 @@ func NewTranslator(plugins []plugin.Plugin) *Translator {
 
 	plugins = append([]plugin.Plugin{NewInitPlugin(functionPlugins)}, plugins...)
 
-	return &Translator{plugins: plugins}
+	return &Translator{plugins: plugins, nameTranslator: nameTranslator}
 }
 
 func constructMatch(in *v1.Matcher) *api.RouteMatch {
@@ -175,6 +177,8 @@ func (t *Translator) constructListener(pi *plugin.PluginInputs, listener, route 
 }
 
 func (t *Translator) Translate(cfg *v1.Config, secretMap module.SecretMap, endpoints module.EndpointGroups) (*envoycache.Snapshot, error) {
+	var statues []plugin.ConfigStatus
+
 	dependencies := dependencies{secrets: secretMap}
 	state := &plugin.State{
 		Dependencies: &dependencies,
@@ -199,11 +203,48 @@ func (t *Translator) Translate(cfg *v1.Config, secretMap module.SecretMap, endpo
 
 	upstreams := cfg.Upstreams
 	for _, upstream := range upstreams {
+		var clustererrors *multierror.Error
+
 		envoycluster := t.constructUpstream(&upstream)
-		for _, p := range t.plugins {
-			p.UpdateEnvoyCluster(pi, &upstream, envoycluster)
+		if _, ok := endpoints[upstream.Name]; ok {
+			// if we have EDS!
+			envoycluster.Type = api.Cluster_EDS
 		}
-		clustersproto = append(clustersproto, envoycluster)
+
+		for _, p := range t.plugins {
+			err := p.UpdateEnvoyCluster(pi, &upstream, envoycluster)
+			if err != nil {
+				clustererrors = multierror.Append(clustererrors, err)
+			}
+		}
+
+		// make sure upstream is health
+		if clustererrors == nil {
+			clustersproto = append(clustersproto, envoycluster)
+			statues = append(statues, plugin.NewConfigOk(&upstream))
+
+			// now, process functions
+			for _, function := range upstream.Functions {
+				var functionerrors *multierror.Error
+				for _, p := range t.plugins {
+					err := p.UpdateFunctionToEnvoyCluster(pi, &upstream, &function, envoycluster)
+					if err != nil {
+						functionerrors = multierror.Append(functionerrors, err)
+					}
+				}
+
+				if functionerrors == nil {
+					statues = append(statues, plugin.NewConfigOk(&function))
+				} else {
+					statues = append(statues, plugin.NewConfigMultiError(&function, functionerrors))
+				}
+			}
+
+		} else {
+			statues = append(statues, plugin.NewConfigMultiError(&upstream, clustererrors))
+
+		}
+
 	}
 
 	rdsname := "routes-80"
@@ -241,7 +282,7 @@ func (t *Translator) Translate(cfg *v1.Config, secretMap module.SecretMap, endpo
 	var listenerproto []proto.Message
 	listenerproto = append(listenerproto, listener)
 
-	version := "1"
+	version := "TODO"
 
 	snapshot := envoycache.NewSnapshot(version,
 		endpointsproto,

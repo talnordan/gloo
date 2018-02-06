@@ -39,33 +39,54 @@ func (ffh *InitPlugin) GetDependencies(cfg *v1.Config) plugin.DependenciesDescri
 	return nil
 }
 
-func (ffh *InitPlugin) Validate(fi *plugin.PluginInputs) []plugin.ConfigError {
-	return nil
-
-}
-
 func (ffh *InitPlugin) EnvoyFilters(fi *plugin.PluginInputs) []plugin.FilterWrapper {
 	return nil
 
 }
 
-func (ffh *InitPlugin) UpdateEnvoyCluster(fi *plugin.PluginInputs, in *v1.Upstream, out *api.Cluster) {
+func (ffh *InitPlugin) UpdateEnvoyCluster(fi *plugin.PluginInputs, in *v1.Upstream, out *api.Cluster) error {
+
+	// TODO configure timeouts and the such
+
+	// make sure we have a function plugin for a functional cluster
+	if len(in.Functions) == 0 {
+		return nil
+	}
+	ff := ffh.ff.GetPlugin(in)
+	if ff == nil {
+		return errors.New("no functional plugin for upstream")
+	}
+	return nil
+
+}
+
+func (ffh *InitPlugin) UpdateFunctionToEnvoyCluster(fi *plugin.PluginInputs, in *v1.Upstream, infunc *v1.Function, out *api.Cluster) error {
+
+	// TODO configure timeouts and the such
+	ff := ffh.ff.GetPlugin(in)
+
+	spec, err := ff.GetFunctionSpec(infunc)
+	if err != nil {
+		return errors.New("can't get function spec for function")
+	}
+	ffh.setFuncSpecStruct(out, infunc.Name, spec)
+
+	return nil
+
 }
 
 func isSingleDestination(in *v1.Route) bool {
 	return len(in.Destination.Destinations) == 0
 }
 
-func (ffh *InitPlugin) updateSingleFunction(pi *plugin.PluginInputs, singlefunc *v1.FunctionDestination, out *api.Route) {
+func (ffh *InitPlugin) updateSingleFunction(pi *plugin.PluginInputs, singlefunc *v1.FunctionDestination, out *api.Route) error {
 	us := pi.State.GetUpstream(singlefunc.UpstreamName)
 	if us != nil {
-		// TODO: propogate faulty route back up
-		return
+		return errors.New("upstream doesn't exist")
 	}
 	funcplug := ffh.ff.GetPlugin(us)
 	if funcplug != nil {
-		// TODO: propogate faulty route back up
-		return
+		return errors.New("function handler doesn't exist")
 	}
 
 	clustername := pi.NameTranslator.UpstreamToClusterName(singlefunc.UpstreamName)
@@ -77,11 +98,11 @@ func (ffh *InitPlugin) updateSingleFunction(pi *plugin.PluginInputs, singlefunc 
 		},
 	}
 	ffh.addClusterSingleFuncToMetadata(pi, funcplug, out, clustername, singlefunc)
+	return nil
 }
-func (ffh *InitPlugin) updateSingleUostream(pi *plugin.PluginInputs, singleus *v1.UpstreamDestination, out *api.Route) {
-	if singleus != nil {
-		// TODO: propogate faulty route back up
-		return
+func (ffh *InitPlugin) updateSingleUpstream(pi *plugin.PluginInputs, singleus *v1.UpstreamDestination, out *api.Route) error {
+	if singleus == nil {
+		return errors.New("upstream doesn't exist")
 	}
 	clustername := pi.NameTranslator.UpstreamToClusterName(singleus.UpstreamName)
 	out.Action = &api.Route_Route{
@@ -91,6 +112,7 @@ func (ffh *InitPlugin) updateSingleUostream(pi *plugin.PluginInputs, singleus *v
 			},
 		},
 	}
+	return nil
 }
 
 func (ffh *InitPlugin) GetPluginForDest(pi *plugin.PluginInputs, dest *v1.SingleDestination) plugin.FunctionalPlugin {
@@ -104,7 +126,7 @@ func (ffh *InitPlugin) GetPluginForDest(pi *plugin.PluginInputs, dest *v1.Single
 	return ffh.ff.GetPlugin(us)
 }
 
-func (ffh *InitPlugin) UpdateEnvoyRoute(pi *plugin.PluginInputs, in *v1.Route, out *api.Route) {
+func (ffh *InitPlugin) UpdateEnvoyRoute(pi *plugin.PluginInputs, in *v1.Route, out *api.Route) error {
 	// we only care about upstreams of type aws
 
 	// if it is a single destination and it is not aws do nothing.
@@ -120,11 +142,17 @@ func (ffh *InitPlugin) UpdateEnvoyRoute(pi *plugin.PluginInputs, in *v1.Route, o
 	if isSingleDestination(in) {
 		singlefunc := in.Destination.SingleDestination.FunctionDestination
 		if singlefunc == nil {
-			ffh.updateSingleUostream(pi, in.Destination.SingleDestination.UpstreamDestination, out)
+			// TODO - at some point- validate that upstream is ok with a non functional access.
+			if err := ffh.updateSingleUpstream(pi, in.Destination.SingleDestination.UpstreamDestination, out); err != nil {
+				return err
+			}
 		} else {
-			ffh.updateSingleFunction(pi, singlefunc, out)
+			if err := ffh.updateSingleFunction(pi, singlefunc, out); err != nil {
+				return err
+			}
 		}
 	} else {
+		// TODO: test for errors from functions
 		// for each functional source in route, find the upstream
 		ourupstreams := make(map[string][]*v1.WeightedDestination)
 		var clusterdestinations []v1.WeightedDestination
@@ -162,6 +190,8 @@ func (ffh *InitPlugin) UpdateEnvoyRoute(pi *plugin.PluginInputs, in *v1.Route, o
 
 		ffh.addTotalWeight(out, totalWeight)
 	}
+
+	return nil
 }
 
 func (ffh *InitPlugin) verifyMetadata(routeout *api.Route, clustername string) *types.Struct {
@@ -171,24 +201,55 @@ func (ffh *InitPlugin) verifyMetadata(routeout *api.Route, clustername string) *
 		}
 	}
 
-	if routeout.Metadata.FilterMetadata[FunctionalFilterKey] == nil {
-		routeout.Metadata.FilterMetadata[FunctionalFilterKey] = &types.Struct{Fields: make(map[string]*types.Value)}
+	return ffh.getStructForKey(routeout.Metadata, clustername)
+}
+func (ffh *InitPlugin) getStructForKey(meta *api.Metadata, key string) *types.Struct {
+	if meta == nil {
+		meta = &api.Metadata{
+			FilterMetadata: make(map[string]*types.Struct),
+		}
 	}
 
-	routeClusterMetadata := &types.Struct{}
-	routeout.Metadata.FilterMetadata[FunctionalFilterKey].Fields[clustername].Kind = &types.Value_StructValue{StructValue: routeClusterMetadata}
-	return routeClusterMetadata
+	if meta.FilterMetadata[FunctionalFilterKey] == nil {
+		meta.FilterMetadata[FunctionalFilterKey] = &types.Struct{Fields: make(map[string]*types.Value)}
+	}
+
+	if meta.FilterMetadata[FunctionalFilterKey].Fields[key] == nil {
+		keyStruct := &types.Struct{}
+		meta.FilterMetadata[FunctionalFilterKey].Fields[key] = &types.Value{}
+		meta.FilterMetadata[FunctionalFilterKey].Fields[key].Kind = &types.Value_StructValue{StructValue: keyStruct}
+		return keyStruct
+	} else {
+		return meta.FilterMetadata[FunctionalFilterKey].Fields[key].Kind.(*types.Value_StructValue).StructValue
+	}
+
 }
 
-func (ffh *InitPlugin) addClusterSingleFuncToMetadata(pi *plugin.PluginInputs, ff plugin.FunctionalPlugin, routeout *api.Route, clustername string, destination *v1.FunctionDestination) {
-	routeClusterMetadata := ffh.verifyMetadata(routeout, clustername)
+func (ffh *InitPlugin) getFuncSpecStruct(out *api.Cluster, funcname string) *types.Struct {
+	functionsMetadata := ffh.getStructForKey(out.Metadata, FunctionalFunctionsKey)
 
-	spec, err := ff.GetFunctionSpec(pi.State.GetFunction(destination))
-	if err != nil {
-		// TODO: report error for route
-		panic("TODO")
+	if functionsMetadata.Fields[funcname] == nil {
+		stru := &types.Struct{}
+		functionsMetadata.Fields[funcname] = &types.Value{}
+		functionsMetadata.Fields[funcname].Kind = &types.Value_StructValue{StructValue: stru}
+		return stru
+	} else {
+		return functionsMetadata.Fields[funcname].Kind.(*types.Value_StructValue).StructValue
 	}
-	routeClusterMetadata.Fields[FunctionalSingleKey].Kind = &types.Value_StructValue{StructValue: spec}
+}
+func (ffh *InitPlugin) setFuncSpecStruct(out *api.Cluster, funcname string, spec *types.Struct) {
+	functionsMetadata := ffh.getStructForKey(out.Metadata, FunctionalFunctionsKey)
+
+	if functionsMetadata.Fields[funcname] == nil {
+		functionsMetadata.Fields[funcname] = &types.Value{}
+	}
+	functionsMetadata.Fields[funcname].Kind = &types.Value_StructValue{StructValue: spec}
+}
+
+func (ffh *InitPlugin) addClusterSingleFuncToMetadata(pi *plugin.PluginInputs, ff plugin.FunctionalPlugin, out *api.Route, clustername string, destination *v1.FunctionDestination) {
+	routeClusterMetadata := ffh.verifyMetadata(out, clustername)
+
+	routeClusterMetadata.Fields[FunctionalSingleKey].Kind = &types.Value_StringValue{StringValue: destination.FunctionName}
 }
 
 func (ffh *InitPlugin) addClusterFuncsToMetadata(pi *plugin.PluginInputs, ff plugin.FunctionalPlugin, routeout *api.Route, clustername string, destinations []*v1.WeightedDestination) {
@@ -199,13 +260,7 @@ func (ffh *InitPlugin) addClusterFuncsToMetadata(pi *plugin.PluginInputs, ff plu
 	for _, destination := range destinations {
 		curvalstruct := &types.Struct{Fields: make(map[string]*types.Value)}
 
-		spec, err := ff.GetFunctionSpec(pi.State.GetFunction(destination.FunctionDestination))
-		if err != nil {
-			// TODO: report error for route
-			panic("TODO")
-		}
-
-		curvalstruct.Fields["spec"].Kind = &types.Value_StructValue{StructValue: spec}
+		curvalstruct.Fields["spec"].Kind = &types.Value_StringValue{StringValue: destination.FunctionDestination.FunctionName}
 		curvalstruct.Fields["weight"].Kind = &types.Value_NumberValue{
 			NumberValue: float64(destination.Weight),
 		}
