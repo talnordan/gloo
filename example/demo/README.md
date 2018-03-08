@@ -54,7 +54,7 @@ export GATEWAY_URL=http://$GATEWAY_ADDR
 Note - source code for this demo is here: https://github.com/solo-io/spring-petclinic, https://github.com/solo-io/petclinic-vet.
 
 ```shell
-kubectl apply -f yamls/pet-clinic.yaml
+kubectl apply -f https://raw.githubusercontent.com/solo-io/gloo/master/example/demo/yamls/pet-clinic.yaml
 ```
 
 Verify it is available as an upstream:
@@ -78,7 +78,7 @@ Notice that the vets page is missing the city column. To fix the bug, we will de
 Deploy the microservice:
 
 ```shell
-kubectl apply -f yamls/vets.yaml
+kubectl apply -f https://raw.githubusercontent.com/solo-io/gloo/master/example/demo/yamls/vets.yaml
 ```
 
 Add a route to the new microservice from gloo:
@@ -110,24 +110,29 @@ BUCKET=name-of-bucket-to-add
 aws s3api  create-bucket  --acl private --bucket $BUCKET
 ```
 
-change the policy to match your bucket:
+Create a policy to match your bucket:
 
 ```shell
-sed s/io.solo.petclinic/$BUCKET/ aws/policy-document_template.json > aws/policy-document.json
+curl -L https://raw.githubusercontent.com/solo-io/gloo/master/example/demo/aws/policy-document_template.json \
+    | sed s/io.solo.petclinic/$BUCKET/ > policy-document.json
 ```
 
 Create the needed policy and role that allows the lambda function to access the bucket:
 
 ```shell
 
-aws iam create-policy --policy-name gloo-contact-lambda-policy --policy-document file://aws/policy-document.json
+aws iam create-policy --policy-name gloo-contact-lambda-policy --policy-document file://policy-document.json
 POLICY_ARN=$(aws iam list-policies | jq -r '.Policies[] | select(.PolicyName == "gloo-contact-lambda-policy") | .Arn')
 
-aws iam create-role --role-name gloo-contact-lambda-role --assume-role-policy-document file://aws/assume-role-policy-document.json
+aws iam create-role --role-name gloo-contact-lambda-role \
+    --assume-role-policy-document https://raw.githubusercontent.com/solo-io/gloo/master/example/demo/aws/assume-role-policy-document.json
 aws iam attach-role-policy --role-name gloo-contact-lambda-role --policy-arn $POLICY_ARN
 ROLE_ARN=$(aws iam list-roles | jq -r '.Roles[] | select(.RoleName == "gloo-contact-lambda-role") | .Arn')
 
 ```
+
+
+
 
 Create the lambda function:
 
@@ -155,7 +160,8 @@ glooctl secret create aws --name aws-lambda-us-east-1
 Create the aws upstream in gloo:
 
 ```shell
-glooctl upstream create -f yamls/aws-upstream.yaml
+glooctl upstream create -f \
+    https://raw.githubusercontent.com/solo-io/gloo/master/example/demo/yamls/aws-upstream.yaml
 ```
 
 Verify that the upstream was created and the functions were auto discovered:
