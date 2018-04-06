@@ -13,6 +13,7 @@ DOCKER_USER=soloio
 
 .PHONY: build
 build: $(BINARIES)
+build-darwin: $(foreach BINARY,$(BINARIES), $(shell echo $(BINARY)-darwin))
 
 docker: $(foreach BINARY,$(BINARIES),$(shell echo $(BINARY)-docker))
 docker-push: $(foreach BINARY,$(BINARIES),$(shell echo $(BINARY)-docker-push))
@@ -41,6 +42,8 @@ $(BINARY): $(PREREQUISITES)
 	CGO_ENABLED=0 GOOS=linux go build -v -a -ldflags '-extldflags "-static"' -o $(BINARY) cmd/$(BINARY)/main.go
 $(BINARY)-debug: $(PREREQUISITES)
 	go build -i -gcflags "-N -l" -o $(BINARY)-debug cmd/$(BINARY)/main.go
+$(BINARY)-darwin: $(PREREQUISITES)
+	CGO_ENABLED=0 GOOS=darwin go build -v -a -ldflags '-extldflags "-static"' -o $(BINARY) cmd/$(BINARY)/main.go
 $(BINARY)-docker: $(BINARY)
 	docker build -t $(DOCKER_USER)/$(BINARY):$(IMAGE_TAG) -f cmd/$(BINARY)/Dockerfile .
 $(BINARY)-docker-push: $(BINARY)
