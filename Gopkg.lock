@@ -647,6 +647,12 @@
 
 [[projects]]
   branch = "master"
+  name = "github.com/solo-io/gloo-api"
+  packages = ["pkg/api/types/v1"]
+  revision = "da06cbac45bb7441bb59c8cc5e21086d64c758fc"
+
+[[projects]]
+  branch = "master"
   name = "github.com/solo-io/gloo-sdk-go"
   packages = ["events"]
   revision = "940a0249aadaadd9454ecc3753e080e71da255a8"
@@ -1095,6 +1101,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "fcbc683a0d1b617e2c4adc56e0cf7a829ab8a6d85fb11d455caa455f1da796d8"
+  inputs-digest = "481aac29cd6cbcbd2bfcf33e139c22ad2a8fb4d73d1bbd05f8c71fb2ba3ceba1"
   solver-name = "gps-cdcl"
   solver-version = 1
