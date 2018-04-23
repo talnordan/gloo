@@ -12,6 +12,8 @@ What makes Gloo special is its use of function-level routing, which is made poss
 
 It is entirely possible to run Gloo as a traditional API gateway, without leveraging function-level capabilities. Gloo can be configured as a fully-featured API gateway, simply by using upstreams that don't support functions.
 
+[![Build Status](https://travis-ci.org/solo-io/gloo.svg?branch=master)](https://travis-ci.org/solo-io/gloo)
+
 ### About gloo:
 * [Introduction](docs/introduction/introduction.md): Introduction to Gloo with a basic overview of Gloo itself and its use cases 
 * [Concepts](docs/introduction/concepts.md): Explanation of the key concepts used in Gloo.
